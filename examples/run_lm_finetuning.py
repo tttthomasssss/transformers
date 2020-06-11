@@ -140,6 +140,11 @@ def _rotate_checkpoints(args, checkpoint_prefix, use_mtime=False):
         shutil.rmtree(checkpoint)
 
 
+def mask_entities(inputs, tokenizer, args):
+    labels = inputs.clone()
+
+
+
 def mask_tokens(inputs, tokenizer, args):
     """ Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original. """
     labels = inputs.clone()
@@ -221,7 +226,12 @@ def train(args, train_dataset, model, tokenizer):
     for _ in train_iterator:
         epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=args.local_rank not in [-1, 0])
         for step, batch in enumerate(epoch_iterator):
-            inputs, labels = mask_tokens(batch, tokenizer, args) if args.mlm else (batch, batch)
+            if args.mtb:
+                inputs, labels = mask_entities(batch, tokenizer, args)
+            elif args.mlm:
+                inputs, labels = mask_tokens(batch, tokenizer, args)
+            else:
+                inputs, labels = (batch, batch)
             inputs = inputs.to(args.device)
             labels = labels.to(args.device)
             model.train()
@@ -354,6 +364,8 @@ def main():
 
     parser.add_argument("--mlm", action='store_true',
                         help="Train with masked-language modeling loss instead of language modeling.")
+    parser.add_argument("--mtb", action='store_true',
+                        help="Train with Matching The Blanks loss instead of basic Masked-language Modelling.")
     parser.add_argument("--mlm_probability", type=float, default=0.15,
                         help="Ratio of tokens to mask for masked language modeling loss")
 
@@ -425,7 +437,7 @@ def main():
     parser.add_argument('--server_port', type=str, default='', help="For distant debugging.")
     args = parser.parse_args()
 
-    if args.model_type in ["bert", "roberta", "distilbert"] and not args.mlm:
+    if args.model_type in ["bert", "roberta", "distilbert"] and (not args.mlm or args.mtb):
         raise ValueError("BERT and RoBERTa do not have LM heads but masked LM heads. They must be run using the --mlm "
                          "flag (masked language modeling).")
     if args.eval_data_file is None and args.do_eval:
